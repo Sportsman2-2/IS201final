@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Rex Lane Runner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #e0e0e0; /* Slightly different background */
+            margin: 0;
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 90vw;
+            height: 60vh;
+            max-width: 800px;
+            max-height: 400px;
+            background-color: #87CEEB;
+            border: 5px solid #333;
+            overflow: hidden;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        #ground {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            background-color: #8B4513; /* Brown ground color */
+            z-index: 1;
+            /* --- VISUAL LANE LINES ADDED --- */
+            /* Use two gradients to draw two vertical lines dividing the space into thirds */
+            background-image: linear-gradient(to right, #654321 2px, transparent 2px), /* Line at 1/3 */
+                              linear-gradient(to right, #654321 2px, transparent 2px); /* Line at 2/3 */
+            /* Size backgrounds so the lines appear at the correct positions */
+            background-size: 33.333% 100%, 66.666% 100%;
+            /* Position the start of each gradient/line */
+            background-position: 33.333% 0, 66.666% 0;
+            /* Ensure lines don't repeat */
+            background-repeat: no-repeat;
+            /* --- END LANE LINES --- */
+        }
+
+        .dino, .trex, .obstacle {
+            position: absolute;
+            font-size: 30px;
+            user-select: none;
+            z-index: 10;
+        }
+
+        .dino {
+            bottom: 20px;
+            transition: bottom 0.1s ease-out, left 0.15s linear;
+        }
+
+        .trex {
+            bottom: 20px;
+            font-size: 45px;
+            z-index: 5;
+             transition: left 0.15s linear;
+        }
+
+        .obstacle {
+            bottom: 20px;
+            left: -40px;
+            font-size: 35px;
+            z-index: 8;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            left: auto;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 20;
+            display: flex;
+            gap: 20px;
+        }
+
+        #message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 0, 0, 0.85);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 10px;
+            font-size: 24px;
+            text-align: center;
+            display: none;
+            z-index: 30;
+            border: 3px solid #fff;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        #message-box button {
+            margin-top: 20px;
+            padding: 12px 25px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 18px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            transition: background-color 0.2s, transform 0.1s;
+        }
+         #message-box button:hover {
+             background-color: #45a049;
+             transform: translateY(-2px);
+         }
+         #message-box button:active {
+             transform: translateY(1px);
+         }
+
+         #controls-info {
+             margin-top: 15px;
+             font-size: 12px;
+             color: #555;
+             text-align: center;
+         }
+
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="ground"></div>
+        <div id="player" class="dino">🦕</div>
+        <div id="trex" class="trex">🦖</div>
+        <div id="ui-container">
+            <div>Score: <span id="score">0</span></div>
+            <div>Lives: <span id="lives">3</span></div>
+        </div>
+        <div id="message-box">
+            <p id="message-text">Game Over!</p>
+            <p>Final Score: <span id="final-score">0</span></p>
+            <button id="restart-button">Restart</button>
+        </div>
+    </div>
+    <div id="controls-info">Arrow Up: Jump | Arrow Left/Right: Change Lanes</div>
+
+    <script>
+        // --- Game Elements ---
+        const gameContainer = document.getElementById('game-container');
+        const player = document.getElementById('player');
+        const trex = document.getElementById('trex');
+        const ground = document.getElementById('ground');
+        const livesDisplay = document.getElementById('lives');
+        const scoreDisplay = document.getElementById('score');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const restartButton = document.getElementById('restart-button');
+
+        // --- Game State Variables ---
+        let lives = 3;
+        let score = 0;
+        let obstacles = [];
+        let gameLoopInterval;
+        let obstacleInterval;
+        let scoreInterval;
+        let gameOver = false;
+
+        // --- Game Parameters ---
+        let obstacleSpeed = 5;
+        let obstacleSpawnRate = 1800;
+        const baseObstacleSpeed = 5;
+        const baseObstacleSpawnRate = 1800;
+        const speedIncreaseFactor = 0.1;
+        const spawnRateDecreaseFactor = 40;
+        const minSpawnRate = 700;
+
+        // --- Player Physics & Lane Logic ---
+        let isJumping = false;
+        let jumpVelocity = 0;
+        const gravity = 0.8;
+        const jumpPower = 15;
+        const groundLevel = 20;
+        let playerLane = 1; // 0 = left, 1 = middle, 2 = right
+        const numLanes = 3;
+        let lanePositions = [];
+
+        // --- Utility Functions ---
+
+        function getRect(element) {
+            return element ? element.getBoundingClientRect() : null;
+        }
+
+        function checkCollision(el1, el2) {
+            const rect1 = getRect(el1);
+            const rect2 = getRect(el2);
+            const gameRect = getRect(gameContainer);
+            if (!rect1 || !rect2 || !gameRect) return false;
+            const buffer = 5; // Collision buffer
+            const r1Top = rect1.top - gameRect.top + buffer;
+            const r1Bottom = rect1.bottom - gameRect.top - buffer;
+            const r1Left = rect1.left - gameRect.left + buffer;
+            const r1Right = rect1.right - gameRect.left - buffer;
+            const r2Top = rect2.top - gameRect.top + buffer;
+            const r2Bottom = rect2.bottom - gameRect.top - buffer;
+            const r2Left = rect2.left - gameRect.left + buffer;
+            const r2Right = rect2.right - gameRect.left - buffer;
+            return !(r1Right < r2Left || r1Left > r2Right || r1Bottom < r2Top || r1Top > r2Bottom);
+        }
+
+        function calculateLanePositions() {
+            const containerWidth = gameContainer.offsetWidth;
+            if (containerWidth === 0) return; // Avoid calculation if container not sized
+            const playerWidth = player.offsetWidth || 30;
+            const laneWidth = containerWidth / numLanes;
+            lanePositions = [];
+            for (let i = 0; i < numLanes; i++) {
+                const laneCenter = (i + 0.5) * laneWidth;
+                lanePositions.push(laneCenter - playerWidth / 2);
+            }
+             if (!gameOver) { // Only update T-Rex if game is running
+                 updateTrexPosition();
+             }
+        }
+
+        function updateTrexPosition() {
+             if (lanePositions.length === 0) return; // Ensure lanes are calculated
+            const trexWidth = trex.offsetWidth || 45;
+            const targetPlayerLeft = lanePositions[playerLane];
+            // Ensure targetPlayerLeft is a valid number before setting style
+            if (typeof targetPlayerLeft === 'number' && !isNaN(targetPlayerLeft)) {
+                trex.style.left = `${targetPlayerLeft + player.offsetWidth + 10}px`;
+            } else {
+                console.warn("Could not update T-Rex position, invalid lane position:", targetPlayerLeft);
+            }
+        }
+
+
+        // --- Game Logic Functions ---
+
+        function initGame() {
+            console.log("Initializing Lane Runner Game...");
+            gameOver = false;
+            lives = 3;
+            score = 0;
+            obstacleSpeed = baseObstacleSpeed;
+            obstacleSpawnRate = baseObstacleSpawnRate;
+            livesDisplay.textContent = lives;
+            scoreDisplay.textContent = score;
+            messageBox.style.display = 'none';
+
+            calculateLanePositions(); // Calculate initial lane positions
+
+            // Ensure lanePositions were calculated before setting player position
+            if (lanePositions.length > 0) {
+                playerLane = 1;
+                player.style.left = `${lanePositions[playerLane]}px`;
+                updateTrexPosition(); // Position T-Rex relative to player
+            } else {
+                 console.error("Lane positions not calculated correctly on init.");
+                 // Fallback position if calculation failed
+                 player.style.left = '50%';
+                 trex.style.left = '60%';
+            }
+
+            player.style.bottom = `${groundLevel}px`;
+            isJumping = false;
+            jumpVelocity = 0;
+            trex.style.bottom = `${groundLevel}px`;
+            trex.style.zIndex = 5;
+
+
+            obstacles.forEach(obstacle => obstacle.remove());
+            obstacles = [];
+
+            clearInterval(gameLoopInterval);
+            clearInterval(obstacleInterval);
+            clearInterval(scoreInterval);
+
+            gameLoopInterval = setInterval(gameLoop, 20);
+            obstacleInterval = setInterval(createObstacle, obstacleSpawnRate);
+            scoreInterval = setInterval(updateScore, 100);
+
+            console.log("Game Initialized. Lanes:", lanePositions, "Player Lane:", playerLane);
+        }
+
+        function handleInput(e) {
+            if (gameOver || lanePositions.length === 0) return; // Ignore input if game over or lanes not ready
+
+            if (e.key === 'ArrowLeft') {
+                if (playerLane > 0) {
+                    playerLane--;
+                    player.style.left = `${lanePositions[playerLane]}px`;
+                    updateTrexPosition();
+                    // console.log("Moved to Lane:", playerLane);
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (playerLane < numLanes - 1) {
+                    playerLane++;
+                    player.style.left = `${lanePositions[playerLane]}px`;
+                    updateTrexPosition();
+                    // console.log("Moved to Lane:", playerLane);
+                }
+            }
+            else if ((e.key === 'ArrowUp' || e.code === 'Space') && !isJumping) {
+                isJumping = true;
+                jumpVelocity = jumpPower;
+                player.style.transition = 'left 0.15s linear';
+            }
+        }
+
+
+        function updatePlayerPosition() {
+            if (isJumping) {
+                 let currentBottom = parseFloat(player.style.bottom);
+                 currentBottom += jumpVelocity;
+                 jumpVelocity -= gravity;
+                 if (currentBottom <= groundLevel) {
+                     currentBottom = groundLevel;
+                     isJumping = false;
+                     jumpVelocity = 0;
+                     player.style.transition = 'bottom 0.1s ease-out, left 0.15s linear';
+                 }
+                 player.style.bottom = `${currentBottom}px`;
+            }
+        }
+
+        function createObstacle() {
+            if (gameOver || lanePositions.length === 0) return;
+
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            obstacle.textContent = Math.random() > 0.5 ? '🌵' : '🗿';
+
+            const assignedLane = Math.floor(Math.random() * numLanes);
+            obstacle.dataset.lane = assignedLane;
+
+            const obstacleWidth = getRect(obstacle)?.width || 35;
+            obstacle.style.left = `-${obstacleWidth}px`;
+            obstacle.style.bottom = `${groundLevel}px`;
+
+            gameContainer.appendChild(obstacle);
+            obstacles.push(obstacle);
+
+            clearInterval(obstacleInterval);
+            obstacleSpawnRate = Math.max(minSpawnRate, baseObstacleSpawnRate - Math.floor(score / 100) * spawnRateDecreaseFactor);
+            obstacleInterval = setInterval(createObstacle, obstacleSpawnRate);
+        }
+
+
+        function moveObstacles() {
+            obstacles.forEach((obstacle, index) => {
+                let currentLeft = parseFloat(obstacle.style.left);
+                currentLeft += obstacleSpeed;
+                obstacle.style.left = `${currentLeft}px`;
+
+                if (currentLeft > gameContainer.offsetWidth) {
+                    obstacle.remove();
+                    obstacles.splice(index, 1);
+                }
+            });
+        }
+
+        function checkObstacleCollisions() {
+            if (gameOver) return;
+            obstacles.forEach((obstacle, index) => {
+                if (checkCollision(player, obstacle)) {
+                    const obstacleLane = parseInt(obstacle.dataset.lane);
+                    if (obstacleLane === playerLane) {
+                        console.log(`Collision detected in Lane ${playerLane}!`);
+                        obstacle.remove();
+                        obstacles.splice(index, 1);
+                        lives--;
+                        livesDisplay.textContent = lives;
+                        player.style.filter = 'brightness(3) sepia(1) hue-rotate(-50deg)';
+                        setTimeout(() => { player.style.filter = 'none'; }, 150);
+                        if (lives <= 0) {
+                            triggerGameOver("You ran out of lives!");
+                        }
+                        return;
+                    }
+                }
+            });
+        }
+
+
+        function updateScore() {
+            if (gameOver) return;
+            score++;
+            scoreDisplay.textContent = score;
+            obstacleSpeed = baseObstacleSpeed + Math.floor(score / 100) * speedIncreaseFactor;
+        }
+
+
+        function triggerGameOver(reason) {
+            if (gameOver) return;
+            console.log("Game Over:", reason);
+            gameOver = true;
+            clearInterval(gameLoopInterval);
+            clearInterval(obstacleInterval);
+            clearInterval(scoreInterval);
+
+            messageText.textContent = reason;
+            finalScoreDisplay.textContent = score;
+            messageBox.style.display = 'block';
+
+             // T-Rex catch animation
+             if (lanePositions.length > 0 && typeof lanePositions[playerLane] === 'number') {
+                const playerLeft = lanePositions[playerLane]; // Use calculated lane position
+                const trexWidth = trex.offsetWidth || 45;
+                trex.style.left = `${playerLeft - trexWidth + 10}px`;
+                trex.style.zIndex = 11;
+             } else {
+                 console.warn("Could not position T-Rex for game over, invalid lane position.");
+             }
+        }
+
+
+        function gameLoop() {
+            if (gameOver) return;
+            updatePlayerPosition();
+            moveObstacles();
+            checkObstacleCollisions();
+        }
+
+        // --- Event Listeners ---
+        document.addEventListener('keydown', handleInput);
+        restartButton.addEventListener('click', initGame);
+
+        // --- Initial Game Setup ---
+        window.onload = function() {
+             console.log("Window loaded, starting lane runner game init.");
+             // Delay init slightly longer to ensure layout is fully calculated
+             setTimeout(initGame, 150);
+        }
+        // Recalculate lanes on resize
+        window.onresize = function() {
+            // Debounce resize event slightly
+            clearTimeout(window.resizeTimeout);
+            window.resizeTimeout = setTimeout(() => {
+                if (!gameOver) {
+                    console.log("Window resized, recalculating lanes.");
+                    calculateLanePositions();
+                    // Update player's current position based on potentially new lane positions
+                    if (lanePositions.length > 0 && typeof lanePositions[playerLane] === 'number') {
+                         player.style.left = `${lanePositions[playerLane]}px`;
+                         updateTrexPosition();
+                    }
+                }
+            }, 250); // Recalculate 250ms after resize stops
+        }
+
+    </script>
+</body>
+</html>
